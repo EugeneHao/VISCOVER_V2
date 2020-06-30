@@ -1,7 +1,8 @@
-# check the packges and install the missing ones 
+# check the packges and install the missing ones  
 list.of.packages <- c("shiny", "shinycssloaders", "shinydashboard", "shinyWidgets", 
                       "plotly", "DT", "leaflet", "leaflet.extras", "tidyr", "dplyr", 
-                      "tibble", "sp", "rgdal", "maps", "raster", "sf", "RCurl")
+                      "tibble", "sp", "rgdal", "maps", "raster", "sf", "RCurl", "XML", "readxl", 
+                      "downloaderd", "readxl")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
@@ -173,7 +174,8 @@ ui <- dashboardPage(
                           tags$li("Thirdly, choose the years you want to search for all the points."),
                           tags$li("Lastly, click the 'Upload' button to obtain the table of the CDL categroies for NRI points.")
                         ),
-                        p("Remark: you can download the table by clicking the 'CSV', 'Excel' or 'PDF' as your preference. ")
+                        p("Remark: you can copy the table by clicking 'copy' button or download the table by clicking the 
+                          'CSV', 'Excel' or 'PDF' as your preference. ")
                       ),
                       tabPanel(
                         "County/State Search",
@@ -191,7 +193,9 @@ ui <- dashboardPage(
                                   you can choose Iowa state, Story and Polk counties, 2019 and 2018 as years, Rice and Soybeans as Categories"),
                           tags$li("To choose the whole state, choose the abbreviation of the state under county choices, e.g. IA for Iowa."),
                           tags$li("If you only want to check some new NRI categories but do not need to change counties and years, you can 
-                                  add new choices for the cropland types and the table will automatically update.")
+                                  add new choices for the cropland types and the table will automatically update."),
+                          tags$li("Of course, you can copy the sub-table by clicking 'copy' button or download the table by clicking the 
+                          'CSV', 'Excel' or 'PDF' as your preference. ")
                         )
                         )
                     )
@@ -202,8 +206,8 @@ ui <- dashboardPage(
       # Point level search 
       tabItem(tabName = "ext_sub1",
               fluidRow(
-                box(title = "Search A List of NRI Points", status = "warning", solidHeader = TRUE, width = 12,
-                    fileInput("file1", "Choose xlsx File",
+                box(title = "Search A List of NRI Points", status = "warning", solidHeader = TRUE, width = 12, 
+                    fileInput("file1", "Choose xlsx File", 
                               multiple = TRUE,
                               accept = c("text/xlsx",
                                          "text/comma-separated-values,text/plain",
@@ -211,10 +215,14 @@ ui <- dashboardPage(
                     column(width = 5,
                            selectInput("point_lv_year", "Choose the years:",
                                        choices = lastyr:1997, multiple = TRUE)),
-                    fluidRow(width = 12, 
-                             DT::dataTableOutput("tbl_NRI_listp") %>% withSpinner()),
                     column(width = 1, actionBttn("getNRIp", "Update", style = "jelly", 
-                                                 color = "primary", size = "sm", icon = icon("refresh")))
+                                                 color = "primary", size = "sm", icon = icon("refresh"))),
+                    # br(),
+                    # br(),
+                    # column(width = 1, actionBttn("reset_pointsearch", "Clear", style = "jelly", 
+                    #                              color = "warning", size = "sm", icon = icon("sliders"))),
+                    fluidRow(width = 12, 
+                             column(width  = 10, DT::dataTableOutput("tbl_NRI_listp") %>% withSpinner())),
                 )
                 )
               ),
@@ -240,6 +248,9 @@ ui <- dashboardPage(
                              column(width = 5, 
                                     selectInput("NRI_category_search", "Choose cropland types: ", 
                                                 choices = NULL, multiple = TRUE)),
+                             br(),
+                             column(width = 1, actionBttn("getcateg_county", "Update", style = "jelly", 
+                                                          color = "primary", size = "sm", icon = icon("refresh")))
 
                              # column(width = 4,
                              #        selectInput("CDL_category_search", "Choose the CDL cateogories you want to check: ",
@@ -247,9 +258,9 @@ ui <- dashboardPage(
                              #                    multiple = TRUE))),
                     ),
                     fluidRow(width = 12, 
-                             DT::dataTableOutput("tbl_NRI_categ_county") %>% withSpinner()),
-                    column(width = 1, actionBttn("getcateg_county", "Update", style = "jelly", 
-                                                 color = "primary", size = "sm", icon = icon("refresh"))))
+                             column(width = 10, DT::dataTableOutput("tbl_NRI_categ_county") %>% withSpinner())
+                             ),
+                    )
               )
       )
   )
@@ -289,32 +300,44 @@ server <- function(input, output, session) {
       NRIlistp <- cbind(NRIlistp, categ)
     }
     NRIlistp %>% 
-      "names<-"(c(df_var, year)) -> NRIlistp
+      "names<-"(c(df_var, paste(year, "CDL", sep = ""))) -> NRIlistp
     NRIlistp
   })
   
+  # draw the table of point search 
   output$tbl_NRI_listp <- DT::renderDataTable({
     if(input$getNRIp)
     {
       NRIlistp <- NRIlistp()
-      org_var = dim(NRIlistp)[2]
-      if(dim(NRIlistp)[2] > 5)
-        org_var <- names(NRIlistp) %>% gsub("[^0-9.-]", " ", .) %>% 
-          as.numeric() %>% is.na() %>% sum()
+      # org_var = dim(NRIlistp)[2]
+      # if(dim(NRIlistp)[2] > 5)
+      #   org_var <- names(NRIlistp) %>% gsub("[^0-9.-]", " ", .) %>% 
+      #     as.numeric() %>% is.na() %>% sum()
       NRIlistp %>%
-        DT::datatable(., caption = "CDL categories of NRI points",
+        DT::datatable(.,  # caption = "CDL categories of NRI points",
                       extensions = c('Buttons',
                                      'FixedColumns'),
                       options = list(
-                        dom = 'Bfrtip',    
-                        buttons = c('csv', 'excel', 'pdf'),
-                        scrollX = TRUE,    fixedColumns = list(leftColumns = org_var)
+                        dom = 'frtipB',    
+                        # l - length changing input control
+                        # f - filtering input
+                        # t - The table!
+                        # i - Table information summary
+                        # p - pagination control
+                        # r - processing display elemen
+                        buttons = c('copy', 'csv', 'excel', 'pdf'),
+                       # caption_side = "bottom",
+                        scrollX = TRUE,    fixedColumns = list(leftColumns = min(5, dim(NRIlistp)[2]))
                       ))
         
     }
 
   })
   
+  # clear the table 
+  # observeEvent(input$reset_pointsearch,{
+  #   removeUI(selector = "#tbl_NRI_listp")
+  # })
  ############################################################################################## 
   # search specific crop categories for counties in some years
   categ_county_list <- eventReactive(input$getcateg_county, {
@@ -373,13 +396,14 @@ server <- function(input, output, session) {
         summarize(detail = paste(infor, collapse = "; ")) %>% arrange(NRI_categ, fips, year) %>% 
         "["(,c(1:4, 6, 5, 7)) %>% 
         DT::datatable(.,
-                   extension = c('Scroller', 'Select', 'SearchPanes'), 
+                   extension = c('Scroller', 'Select', 'SearchPanes', 'Buttons'), 
                    selection = 'none',
                    options =list(
                      deferRender = TRUE,  scrollY = 200,  scroller = TRUE,
                      pageLength = 20,
-                     dom = 'Pfrtip', 
+                     dom = 'PfrtipB', 
                      columnDefs = list(list(searchPanes = list(show = FALSE), targets = c(2,4,6,7))),
+                     buttons = c('copy', 'csv', 'excel', 'pdf'),
                      initComplete = JS(
                        "function(settings, json) {",
                        "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
