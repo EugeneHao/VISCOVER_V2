@@ -1,8 +1,8 @@
-# check the packges and install the missing ones  
-list.of.packages <- c("shiny", "shinycssloaders", "shinydashboard", "shinyWidgets", 
-                      "plotly", "DT", "leaflet", "leaflet.extras", "tidyr", "dplyr", 
-                      "tibble", "sp", "rgdal", "maps", "raster", "sf", "RCurl", "XML", "readxl", 
-                      "downloaderd", "readxl")
+# check the packges and install the missing ones
+list.of.packages <- c("shiny", "shinycssloaders", "shinydashboard", "shinyWidgets",
+                      "plotly", "DT", "leaflet", "leaflet.extras", "tidyr", "dplyr",
+                      "tibble", "sp", "rgdal", "maps", "raster", "sf", "RCurl", "XML", "readxl",
+                       "downloaderd", "readxl")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
@@ -52,7 +52,8 @@ ui <- dashboardPage(
       menuItem(text = "Extension Functions", icon = icon("th"), tabName = "extension", # badgeLabel = "new",
                badgeColor = "green"),
         menuSubItem("Point Search", tabName = "ext_sub1"),
-        menuSubItem("County/State Search", tabName = "ext_sub2")
+        menuSubItem("County/State Search", tabName = "ext_sub2"),
+        menuSubItem("County Trend", tabName = "ext_sub3")
 
     )
   ),
@@ -203,7 +204,7 @@ ui <- dashboardPage(
                 )
       ),
 
-      # Point level search 
+# Point level search 
       tabItem(tabName = "ext_sub1",
               fluidRow(
                 box(title = "Search A List of NRI Points", status = "warning", solidHeader = TRUE, width = 12, 
@@ -237,9 +238,6 @@ ui <- dashboardPage(
                                                 choices = states$state)),
                              column(width = 5, 
                                     uiOutput("secondsearch"))
-                             # column(width = 5,
-                             #        selectInput("NRI_county_search", "Choose County:",
-                             #                    choices = NULL))
                     ),
                     fluidRow(width = 10,
                              column(width = 5,
@@ -252,17 +250,57 @@ ui <- dashboardPage(
                              column(width = 1, actionBttn("getcateg_county", "Update", style = "jelly", 
                                                           color = "primary", size = "sm", icon = icon("refresh")))
 
-                             # column(width = 4,
-                             #        selectInput("CDL_category_search", "Choose the CDL cateogories you want to check: ",
-                             #                    choices = NULL,
-                             #                    multiple = TRUE))),
                     ),
                     fluidRow(width = 12, 
                              column(width = 10, DT::dataTableOutput("tbl_NRI_categ_county") %>% withSpinner())
                              ),
                     )
               )
-      )
+      ),
+    tabItem(tabName = "ext_sub3",
+        fluidPage(
+          box(title = "Plot Trend of Cropland Type for Given County/State", status = "primary", 
+              solidHeader = TRUE, width = 12,
+              # choose state and county
+              fluidRow(width = 10,
+                       column(width = 5,
+                              selectInput("sub3_state", "Choose one state:",
+                                          choices = states$state)),
+                       column(width = 5, 
+                              uiOutput("sub3_secondchoice"))
+              ), 
+              # choose the types of time input and the cagegories 
+              fluidRow(width = 10,
+                       column(width = 5,
+                              selectInput("sub3_inputtype", "Type of input:",
+                                          choices = c("sliderInput", "selectInput"))),
+                       column(width = 5, 
+                              selectInput("sub3_croptype", "Choose cropland types: ", 
+                                          choices = NULL, multiple = TRUE)),
+                       column(width = 5, 
+                         conditionalPanel(
+                           condition = "input.sub3_inputtype == 'sliderInput'",
+                           sliderInput("sub3_slider_year", "Time Range", min = 1997, max = lastyr, value = c(1997, lastyr))
+                         ),
+                         conditionalPanel(
+                           condition = "input.sub3_inputtype == 'selectInput'",
+                           selectInput("sub3_select_year", "Choose the years:",
+                                       choices = NULL, multiple = TRUE)
+                         )
+                         ), 
+                       
+                       column(width = 1, br(), actionBttn("sub3_update", "Update", style = "jelly", 
+                                                    color = "primary", size = "sm", icon = icon("refresh")))
+                       
+              ),  # fluidRow
+              fluidRow(width = 12, 
+                         column(width = 10, plotlyOutput("sub3_plot", height = "100%") %>% withSpinner())
+              )  # fluidRow
+          ) # box 
+        ) # fluidPage
+    ) # tabItem 
+    
+    # end of tabItem
   )
 )
 )
@@ -334,10 +372,7 @@ server <- function(input, output, session) {
 
   })
   
-  # clear the table 
-  # observeEvent(input$reset_pointsearch,{
-  #   removeUI(selector = "#tbl_NRI_listp")
-  # })
+
  ############################################################################################## 
   # search specific crop categories for counties in some years
   categ_county_list <- eventReactive(input$getcateg_county, {
@@ -377,10 +412,7 @@ server <- function(input, output, session) {
                        choices = 2019:1997,
                        server = TRUE
   )
-  # updateSelectizeInput(session, 'CDL_category_search',
-  #                      choices = CDL_NRI_crosswalk$CDL_categ,
-  #                      server = TRUE
-  # )
+
   
   
   output$tbl_NRI_categ_county <- DT::renderDataTable({
@@ -414,7 +446,67 @@ server <- function(input, output, session) {
     }
   }, server = FALSE)
   
+######################
+  # sub3: plot the trend of a cagegory of one county 
+  updateSelectizeInput(session, 'sub3_select_year',
+                       choices = 2019:1997,
+                       server = TRUE
+  )
   
+  updateSelectizeInput(session, 'sub3_state',
+                       choices = county_fips$state %>% unique() %>%
+                         "["(is.na(.) == FALSE), selected = "iowa",
+                       server = TRUE
+  )
+  output$sub3_secondchoice <- renderUI({
+    selectInput("sub3_county", "Choose the counties:", county_fips%>% filter(state == input$sub3_state) %>% 
+                  dplyr::select(county), multiple = FALSE)
+  })
+  
+  updateSelectizeInput(session, 'sub3_croptype',
+                       choices = CDL_NRI_crosswalk$NRI_categ %>% unique() %>%
+                         "["(is.na(.) == FALSE) %>% sort,
+                       server = TRUE
+  )
+  
+  # web scrabing the categories infor
+  categ_county_list <- eventReactive(input$sub3_update, {
+    state <- input$sub3_state
+    county <- input$sub3_county
+    if(input$sub3_inputtype == 'sliderInput')
+      year <- input$sub3_slider_year[1]:input$sub3_slider_year[2]
+    if(input$sub3_inputtype == 'selectInput')
+      year <- input$sub3_select_year
+    categ_summary <- GetCDLcountysmy(state, county, year, county_fips, counties, states)
+    categ_county_list <- 
+      lapply(1:dim(categ_summary)[1], FUN = function(x) categ_summary$data[[x]] %>% 
+               right_join(.,  CDL_NRI_crosswalk) %>% 
+               cbind(year = categ_summary$year[x], 
+                     state = categ_summary$state[x], 
+                     county = categ_summary$county[x],
+                     fips = categ_summary$fips[x], .)) %>% 
+      do.call(rbind,.)
+    
+    categ_county_list
+  })  
+  
+  # draw the line chart 
+  output$sub3_plot <- renderPlotly({
+    if(input$sub3_update)
+    {
+      categ_county_list <- categ_county_list()
+      categ_county_list$Freq[is.na(categ_county_list$Freq)] <- 0
+      categ_county_list %>% filter(NRI_categ %in% input$sub3_croptype) %>% 
+        dplyr::group_by(year, state, county, fips, NRI_categ) %>% 
+        summarize(Freq = sum(Freq)) %>% 
+        ungroup() %>% 
+        plot_ly(x=~year, y=~Freq, mode="lines+marker", color=~NRI_categ) %>% 
+        layout(
+               xaxis = list(showgrid = TRUE, title = "", zeroline = FALSE),
+               yaxis = list(title = "")) -> p
+      p
+    }
+  })
   ############################################################################################
   
   ## Base Map ####
