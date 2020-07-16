@@ -214,7 +214,7 @@ ui <- dashboardPage(
                                          "text/comma-separated-values,text/plain",
                                          ".xlsx")),
                     column(width = 5,
-                           selectInput("point_lv_year", "Choose the years:",
+                           selectInput("point_lv_year", "Choose the years (multiple choices):",
                                        choices = lastyr:1997, multiple = TRUE)),
                     column(width = 1, actionBttn("getNRIp", "Update", style = "jelly", 
                                                  color = "primary", size = "sm", icon = icon("refresh"))),
@@ -241,10 +241,10 @@ ui <- dashboardPage(
                     ),
                     fluidRow(width = 10,
                              column(width = 5,
-                                    selectInput("NRI_year_search", "Choose the years:",
+                                    selectInput("NRI_year_search", "Choose the years  (multiple choices):",
                                                 choices = NULL, multiple = TRUE)),
                              column(width = 5, 
-                                    selectInput("NRI_category_search", "Choose cropland types: ", 
+                                    selectInput("NRI_category_search", "Choose cropland types  (multiple choices): ", 
                                                 choices = NULL, multiple = TRUE)),
                              br(),
                              column(width = 1, actionBttn("getcateg_county", "Update", style = "jelly", 
@@ -275,7 +275,7 @@ ui <- dashboardPage(
                               selectInput("sub3_inputtype", "Type of input:",
                                           choices = c("sliderInput", "selectInput"))),
                        column(width = 5, 
-                              selectInput("sub3_croptype", "Choose cropland types: ", 
+                              selectInput("sub3_croptype", "Choose cropland types (multiple choices):", 
                                           choices = NULL, multiple = TRUE)),
                        column(width = 5, 
                          conditionalPanel(
@@ -284,7 +284,7 @@ ui <- dashboardPage(
                          ),
                          conditionalPanel(
                            condition = "input.sub3_inputtype == 'selectInput'",
-                           selectInput("sub3_select_year", "Choose the years:",
+                           selectInput("sub3_select_year", "Choose the years  (multiple choices):",
                                        choices = NULL, multiple = TRUE)
                          )
                          ), 
@@ -318,18 +318,19 @@ server <- function(input, output, session) {
   #req(input$file1)
   
 ###############################################################################################
-  # show the CDL categories of a list of NRI points
+  # sub function 1 : show the CDL categories of a list of NRI points
+  
+  # web scrab the CDL infor and return the category table 
   NRIlistp <- eventReactive(input$getNRIp, {
-    inFile <- input$file1
+    inFile <- input$file1    
     if(is.null(inFile))
       return(NULL)
     NRIlistp <- readxl::read_excel(input$file1$datapath)
     df_var <- names(NRIlistp)
     year <- input$point_lv_year %>% as.numeric() %>% sort(., decreasing = TRUE)
-   #  year <- year[is.na(year)== FALSE & year >=1997 & year <=lastyr] %>% sort(., decreasing = TRUE)
     lat <- NRIlistp$lat %>% gsub("[^0-9.-]", " ", .) %>% as.numeric()
     lon <- NRIlistp$lon %>% gsub("[^0-9.-]", " ", .) %>% as.numeric()
-    
+  
     for(j in year)
     {
       categ <- NULL
@@ -347,10 +348,6 @@ server <- function(input, output, session) {
     if(input$getNRIp)
     {
       NRIlistp <- NRIlistp()
-      # org_var = dim(NRIlistp)[2]
-      # if(dim(NRIlistp)[2] > 5)
-      #   org_var <- names(NRIlistp) %>% gsub("[^0-9.-]", " ", .) %>% 
-      #     as.numeric() %>% is.na() %>% sum()
       NRIlistp %>%
         DT::datatable(.,  # caption = "CDL categories of NRI points",
                       extensions = c('Buttons',
@@ -364,22 +361,23 @@ server <- function(input, output, session) {
                         # p - pagination control
                         # r - processing display elemen
                         buttons = c('copy', 'csv', 'excel', 'pdf'),
-                       # caption_side = "bottom",
                         scrollX = TRUE,    fixedColumns = list(leftColumns = min(5, dim(NRIlistp)[2]))
                       ))
         
     }
-
   })
   
 
  ############################################################################################## 
-  # search specific crop categories for counties in some years
+  # sub function 2: search specific crop categories for several counties in several years
+  
+  # this function reture the number of pixels for all CDL categoires for each counties
   categ_county_list <- eventReactive(input$getcateg_county, {
-    state <- input$NRI_state_search
-    county <- input$NRI_county_search
-    year <- input$NRI_year_search 
+    state <- input$NRI_state_search            # state = 'iowa'
+    county <- input$NRI_county_search          # county = 'story'
+    year <- input$NRI_year_search              # year = '2019' 
 
+    # county_fips, counties, states are defined at the top of the code
     categ_summary <- GetCDLcountysmy(state, county, year, county_fips, counties, states)
     categ_county_list <- 
       lapply(1:dim(categ_summary)[1], FUN = function(x) categ_summary$data[[x]] %>% 
@@ -393,33 +391,41 @@ server <- function(input, output, session) {
     categ_county_list
   })  
   
+  # set state input, default state as Iowa
   updateSelectizeInput(session, 'NRI_state_search',
                        choices = county_fips$state %>% unique() %>%
                          "["(is.na(.) == FALSE), selected = "iowa",
                        server = TRUE
   )
+  
+  # set render UI for county input, multiple choices allowed 
   output$secondsearch <- renderUI({
-    selectInput("NRI_county_search", "Choose the counties:", county_fips%>% filter(state == input$NRI_state_search) %>% 
+    selectInput("NRI_county_search", "Choose the counties  (multiple choices):", 
+                county_fips%>% filter(state == input$NRI_state_search) %>% 
                   dplyr::select(county), multiple = TRUE)
   })
 
+  # set NRI category input, multiple choices allowed 
   updateSelectizeInput(session, 'NRI_category_search',
                        choices = CDL_NRI_crosswalk$NRI_categ %>% unique() %>%
                          "["(is.na(.) == FALSE) %>% sort,
                        server = TRUE
   )
+  
+  # set time input, multiple choices allowed 
   updateSelectizeInput(session, 'NRI_year_search',
                        choices = 2019:1997,
                        server = TRUE
   )
 
-  
-  
+  # draw the table for NRI categories under county level, 
+  # (automatically update if the user only changes the category)
   output$tbl_NRI_categ_county <- DT::renderDataTable({
     if(input$getcateg_county)
     {
-      categ_county_list <- categ_county_list()
+      categ_county_list <- categ_county_list()           
       categ_county_list$Freq[is.na(categ_county_list$Freq)] <- 0
+      # input <- list(NRI_category_search = "Soybeans")
       categ_county_list %>% filter(NRI_categ %in% input$NRI_category_search) %>% 
         dplyr::group_by(year, state, county, fips, NRI_categ) %>% 
         summarize(infor = paste(CDL_categ, Freq, sep = "="), 
@@ -447,22 +453,28 @@ server <- function(input, output, session) {
   }, server = FALSE)
   
 ######################
-  # sub3: plot the trend of a cagegory of one county 
+  # sub function 3: plot the trend of a cagegory under county level
+  
+  # set year input
   updateSelectizeInput(session, 'sub3_select_year',
                        choices = 2019:1997,
                        server = TRUE
   )
   
+  # set state input, default as 'iowa'
   updateSelectizeInput(session, 'sub3_state',
                        choices = county_fips$state %>% unique() %>%
                          "["(is.na(.) == FALSE), selected = "iowa",
                        server = TRUE
   )
+  
+  # set county input, multiple choices allowed
   output$sub3_secondchoice <- renderUI({
-    selectInput("sub3_county", "Choose the counties:", county_fips%>% filter(state == input$sub3_state) %>% 
+    selectInput("sub3_county", "Choose the counties  (multiple choices):", county_fips%>% filter(state == input$sub3_state) %>% 
                   dplyr::select(county), multiple = FALSE)
   })
   
+  # set NRI category 
   updateSelectizeInput(session, 'sub3_croptype',
                        choices = CDL_NRI_crosswalk$NRI_categ %>% unique() %>%
                          "["(is.na(.) == FALSE) %>% sort,
@@ -471,8 +483,9 @@ server <- function(input, output, session) {
   
   # web scrabing the categories infor
   categ_county_list <- eventReactive(input$sub3_update, {
-    state <- input$sub3_state
-    county <- input$sub3_county
+    state <- input$sub3_state                # state = 'iowa'
+    county <- input$sub3_county              # county = 'story'
+    # year = c(2000, 2010, 2019)
     if(input$sub3_inputtype == 'sliderInput')
       year <- input$sub3_slider_year[1]:input$sub3_slider_year[2]
     if(input$sub3_inputtype == 'selectInput')
